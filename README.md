@@ -33,3 +33,11 @@ When running the code, be sure to update the port to the correct one for your di
 
 ## Software Mic v1.0.3 Release Notes
     Fixed bug with B button.
+
+## BT-01 Display (radio status)
+    d578_display.py shows zone, channel name and frequency for both VFOs on an LCD-style panel, polled over the same digirig connection using the BT-01 "+ADATA" protocol (decoded in d578_status.py from the BT-01 capture logs).
+    In the software mic GUI it opens beside the mic; the LCD button (or clicking the mic's screen) shows/hides it. Polling pauses while software PTT is keyed.
+    Settings in d578uv.conf under [Display]: autoopen, pollinterval (seconds), gps.
+    Standalone: python d578_display.py --port COM5   (or --demo to replay the captured replies without a radio)
+    Command line: python d578_status.py --port COM5 [--watch 2] [--raw]
+    Changed Image.ANTIALIAS to Image.LANCZOS (ANTIALIAS was removed in Pillow 10).

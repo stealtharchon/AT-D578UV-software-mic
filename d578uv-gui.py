@@ -14,6 +14,8 @@ import time
 import threading
 from datetime import datetime
 import configparser
+from d578_status import SharedSerial
+import d578_display
 #import struct
 
 icon_file = "favicon.ico"
@@ -288,7 +290,7 @@ print(bytesize)
 
 # Open the serial port
 try:
-    ser = serial.Serial(port, baudrate, timeout=timeout, parity=parity, stopbits=stopbits, bytesize=bytesize)
+    ser = SharedSerial(serial.Serial(port, baudrate, timeout=timeout, parity=parity, stopbits=stopbits, bytesize=bytesize))
 except Exception as e:
     print(f"Error: {e}")
 
@@ -298,6 +300,7 @@ stop_event = threading.Event()
 ser_stop_event = threading.Event()
 Button_A_stop_event = threading.Event()
 ptt_stop_event = threading.Event()
+ptt_active = threading.Event()  # keyed via software PTT; pauses the BT-01 display polling
 
 # for file in os.listdir('.'):
 #     print(file)
@@ -313,7 +316,7 @@ window.resizable(False,False)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "AT-D578UVIII.png")
 image = Image.open(image_path)
-resized_image = image.resize((303, 578), Image.ANTIALIAS)
+resized_image = image.resize((303, 578), Image.LANCZOS)
 tk_image = ImageTk.PhotoImage(resized_image)
 background_label = tk.Label(window, image=tk_image)
 background_label.place(x=0, y=0, relwidth=1, relheight=1)
@@ -337,6 +340,7 @@ def Button_PTT_thread():
         return
 
     # Send the click command
+    ptt_active.set()
     ser.write(COMMAND_CLICK)
     print(f"Sent: {COMMAND_CLICK.hex()}")
     red_light.configure(bg="#FF0023") #Red
@@ -364,6 +368,7 @@ def Button_PTT_release():
 
     # Send the release command
     ser.write(COMMAND_RELEASE)
+    ptt_active.clear()
     print(f"Sent: {COMMAND_RELEASE.hex()}")
     red_light.configure(bg="#00C800") #Green
 
@@ -414,7 +419,7 @@ def stop_Button_PTT_thread():
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_ptt.png")
 button_ptt_image = Image.open(image_path)
-resize_button_ptt = button_ptt_image.resize((59, 71), Image.ANTIALIAS)
+resize_button_ptt = button_ptt_image.resize((59, 71), Image.LANCZOS)
 button_ptt = ImageTk.PhotoImage(resize_button_ptt)
 
 def PTTButton_on_button_press(event):
@@ -1427,7 +1432,7 @@ button_A_y = 340
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_A.png")
 buton_A_image = Image.open(image_path)
-resize_button_A = buton_A_image.resize((button_size, button_size), Image.ANTIALIAS)
+resize_button_A = buton_A_image.resize((button_size, button_size), Image.LANCZOS)
 button_A = ImageTk.PhotoImage(resize_button_A)
 button_A_button = tk.Button(window, image=button_A, border=0, highlightthickness=0, background="#2B2B2B", activebackground="#2B2B2B", padx=0, pady=0, height=button_size-8, width=button_size-8, command=start_Button_A_thread)
 button_A_button.place(x=button_A_x,y=button_A_y)
@@ -1435,7 +1440,7 @@ button_A_button.place(x=button_A_x,y=button_A_y)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_B.png")
 buton_B_image = Image.open(image_path)
-resize_button_B = buton_B_image.resize((button_size, button_size), Image.ANTIALIAS)
+resize_button_B = buton_B_image.resize((button_size, button_size), Image.LANCZOS)
 button_B = ImageTk.PhotoImage(resize_button_B)
 button_B_button = tk.Button(window, image=button_B, border=0, highlightthickness=0, background="#2B2B2B", activebackground="#2B2B2B", padx=0, pady=0, height=button_size-8, width=button_size-8, command=start_Button_B_thread)
 button_B_button.place(x=button_A_x+(58*1),y=button_A_y)
@@ -1443,7 +1448,7 @@ button_B_button.place(x=button_A_x+(58*1),y=button_A_y)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_C.png")
 buton_C_image = Image.open(image_path)
-resize_button_C = buton_C_image.resize((button_size, button_size), Image.ANTIALIAS)
+resize_button_C = buton_C_image.resize((button_size, button_size), Image.LANCZOS)
 button_C = ImageTk.PhotoImage(resize_button_C)
 button_C_button = tk.Button(window, image=button_C, border=0, highlightthickness=0, background="#2B2B2B", activebackground="#2B2B2B", padx=0, pady=0, height=button_size-8, width=button_size-8, command=start_Button_C_thread)
 button_C_button.place(x=button_A_x+(58*2),y=button_A_y)
@@ -1451,7 +1456,7 @@ button_C_button.place(x=button_A_x+(58*2),y=button_A_y)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_D.png")
 buton_D_image = Image.open(image_path)
-resize_button_D = buton_D_image.resize((button_size, button_size), Image.ANTIALIAS)
+resize_button_D = buton_D_image.resize((button_size, button_size), Image.LANCZOS)
 button_D = ImageTk.PhotoImage(resize_button_D)
 button_D_button = tk.Button(window, image=button_D, border=0, highlightthickness=0, background="#2B2B2B", activebackground="#2B2B2B", padx=0, pady=0, height=button_size-8, width=button_size-8, command=start_Button_D_thread)
 button_D_button.place(x=button_A_x+(58*3),y=button_A_y)
@@ -1459,7 +1464,7 @@ button_D_button.place(x=button_A_x+(58*3),y=button_A_y)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "subptt.png")
 button_subptt_image = Image.open(image_path)
-resize_subptt = button_subptt_image.resize((40, 101), Image.ANTIALIAS)
+resize_subptt = button_subptt_image.resize((40, 101), Image.LANCZOS)
 button_subptt = ImageTk.PhotoImage(resize_subptt)
 button_subptt_button = tk.Button(window, image=button_subptt, border=0, highlightthickness=0, background="#2B2B2B", activebackground="#2B2B2B", padx=0, pady=0, command=start_Button_SubAB_thread)
 button_subptt_button.place(x=74,y=141)
@@ -1467,7 +1472,7 @@ button_subptt_button.place(x=74,y=141)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_ptt.png")
 button_ptt_image = Image.open(image_path)
-resize_button_ptt = button_ptt_image.resize((71, 59), Image.ANTIALIAS)
+resize_button_ptt = button_ptt_image.resize((71, 59), Image.LANCZOS)
 button_ptt = ImageTk.PhotoImage(resize_button_ptt)
 button_ptt_button = PTTButton(window, image=button_ptt, border=0, highlightthickness=0, padx=0, pady=0)
 button_ptt_button.place(x=20, y=20)
@@ -1484,7 +1489,7 @@ def open_conf_window():
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_settings.png")
 button_settings_image = Image.open(image_path)
-resize_button_settings = button_settings_image.resize((71, 59), Image.ANTIALIAS)
+resize_button_settings = button_settings_image.resize((71, 59), Image.LANCZOS)
 button_settings = ImageTk.PhotoImage(resize_button_settings)
 button_settings_button = tk.Button(window, image=button_settings, border=0, highlightthickness=0, padx=0, pady=0, command=create_settings_window)
 button_settings_button.place(x=20,y=520)
@@ -1604,7 +1609,7 @@ def serial_connect():
 
     # Open the serial port
     try:
-        ser = serial.Serial(port, baudrate, timeout=timeout, parity=parity, stopbits=stopbits, bytesize=bytesize)
+        ser = SharedSerial(serial.Serial(port, baudrate, timeout=timeout, parity=parity, stopbits=stopbits, bytesize=bytesize))
     except Exception as e:
         print(f"Error: {e}")
     serial_thread = start_serial_thread()
@@ -1616,10 +1621,26 @@ serial_thread = start_serial_thread()
 script_dir = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join(script_dir, "button_connect.png")
 button_connect_image = Image.open(image_path)
-resize_button_connect = button_connect_image.resize((71, 59), Image.ANTIALIAS)
+resize_button_connect = button_connect_image.resize((71, 59), Image.LANCZOS)
 button_connect = ImageTk.PhotoImage(resize_button_connect)
 button_connect_button = tk.Button(window, image=button_connect, border=0, highlightthickness=0, padx=0, pady=0, command=serial_connect, state="disabled")
 button_connect_button.place(x=20,y=455)
+
+## BT-01 Display
+# Shares the mic's serial connection; the display window opens beside the mic.
+display_interval = config.getfloat('Display', 'pollinterval', fallback=2.0)
+display_gps = config.getboolean('Display', 'gps', fallback=False)
+lcd_window = d578_display.DisplayWindow(window, get_link=lambda: ser, interval=display_interval,
+                                        gps=display_gps, ptt=ptt_active.is_set, title=callsign)
+lcd_window.withdraw()
+if config.getboolean('Display', 'autoopen', fallback=True):
+    window.after(500, lcd_window.show, window)
+
+button_lcd_button = tk.Button(window, text="LCD", font=("Arial", 12, "bold"), foreground="white", background="#262626",
+                              activebackground="#404040", activeforeground="white", border=0,
+                              command=lambda: lcd_window.toggle(window))
+button_lcd_button.place(x=20, y=390, width=71, height=59)
+label.bind("<Button-1>", lambda e: lcd_window.toggle(window))  # click the mic's screen too
 
 def close_window():
     stop_event.set()

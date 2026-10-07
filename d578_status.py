@@ -18,7 +18,9 @@ Usage:
 import argparse
 import re
 import sys
+import threading
 import time
+from contextlib import contextmanager
 
 HEADER = re.compile(rb"\+ADATA:(\d\d),(\d{3})\r\n")
 
@@ -117,59 +119,127 @@ def fmt(d: dict) -> str:
 
 # ---------------------------------------------------------------- radio I/O
 
+class SharedSerial:
+    """
+    Lets the software mic GUI and the status poller share one serial port.
+
+    Ordinary read()/write()/attribute access passes straight through, so the
+    mic code behaves as before and its threads still run concurrently.  A
+    status poll runs inside transaction(): it waits for in-flight mic calls
+    to finish, then holds them off until the poll is done, so the mic's
+    keep-alive reads can't swallow the radio's replies.
+    """
+
+    def __init__(self, ser):
+        object.__setattr__(self, "raw", ser)
+        object.__setattr__(self, "_cond", threading.Condition())
+        object.__setattr__(self, "_busy", False)    # transaction active
+        object.__setattr__(self, "_active", 0)      # mic calls in flight
+
+    @contextmanager
+    def transaction(self):
+        with self._cond:
+            while self._busy:
+                self._cond.wait()
+            object.__setattr__(self, "_busy", True)
+            while self._active:
+                self._cond.wait()
+        try:
+            yield self.raw
+        finally:
+            with self._cond:
+                object.__setattr__(self, "_busy", False)
+                self._cond.notify_all()
+
+    @contextmanager
+    def _op(self):
+        with self._cond:
+            while self._busy:
+                self._cond.wait()
+            object.__setattr__(self, "_active", self._active + 1)
+        try:
+            yield
+        finally:
+            with self._cond:
+                object.__setattr__(self, "_active", self._active - 1)
+                self._cond.notify_all()
+
+    def write(self, data):
+        with self._op():
+            return self.raw.write(data)
+
+    def read(self, size=1):
+        with self._op():
+            return self.raw.read(size)
+
+    def __getattr__(self, name):
+        return getattr(self.raw, name)
+
+    def __setattr__(self, name, value):       # e.g. the mic's ser.timeout = 0.1
+        with self._op():
+            setattr(self.raw, name, value)
+
+
 class Radio:
-    def __init__(self, port: str, baud: int = 115200, raw: bool = False):
-        import serial  # pip install pyserial
-        self.ser = serial.Serial(port, baud, timeout=0.1)
-        self.parser = FrameParser()
+    def __init__(self, port: str | None = None, baud: int = 115200,
+                 raw: bool = False, link: SharedSerial | None = None):
+        if link is None:
+            import serial  # pip install pyserial
+            link = SharedSerial(serial.Serial(port, baud, timeout=0.1))
+        self.link = link
         self.raw = raw
 
     def close(self):
-        self.ser.close()
+        self.link.close()
 
-    def send(self, data: bytes):
+    def _send(self, ser, data: bytes):
         if self.raw:
             print(f"  >> {data.hex(' ')}")
-        self.ser.write(data)
+        ser.write(data)
 
-    def recv(self, wait: float = 0.5) -> list[bytes]:
-        """Collect all payloads that arrive within `wait` seconds."""
-        out, deadline = [], time.monotonic() + wait
+    def _recv(self, ser, parser, want, wait: float) -> bytes | None:
+        """Read until a payload satisfying want(payload) arrives, or timeout."""
+        deadline = time.monotonic() + wait
         while time.monotonic() < deadline:
-            chunk = self.ser.read(512)
-            if chunk:
-                for p in self.parser.feed(chunk):
-                    if self.raw:
-                        ok = "ok" if checksum_ok(p) else "BAD SUM"
-                        print(f"  << [{len(p):3d}] {p.hex(' ')}  ({ok})")
-                    out.append(p)
-                deadline = max(deadline, time.monotonic() + 0.15)
-        return out
+            chunk = ser.read(max(1, ser.in_waiting))
+            for p in parser.feed(chunk):
+                if self.raw:
+                    ok = "ok" if checksum_ok(p) else "BAD SUM"
+                    print(f"  << [{len(p):3d}] {p.hex(' ')}  ({ok})")
+                if want(p):
+                    return p
+        return None
 
     def read_status(self, queries=(Q_ZONE_A, Q_ZONE_B, Q_CHAN_A, Q_CHAN_B)) -> list[dict]:
         # Same sequence the BT-01 uses: wake x3, enter COM MODE, query, end.
-        for _ in range(3):
-            self.send(WAKE)
-            self.recv(0.2)
-        self.send(COM_MODE)
-        replies = self.recv(0.5)
-        if not replies:
-            self.send(COM_MODE)       # the BT-01 also sends it twice
-            replies = self.recv(0.5)
-        if not replies:
-            raise TimeoutError("no reply to COM MODE request")
+        with self.link.transaction() as ser:
+            saved_timeout, ser.timeout = ser.timeout, 0.02
+            try:
+                ser.reset_input_buffer()
+                parser = FrameParser()
+                for _ in range(3):
+                    self._send(ser, WAKE)
+                    self._recv(ser, parser, lambda p: True, 0.1)
+                ack = lambda p: p[:2] == b"\x03\x01"
+                self._send(ser, COM_MODE)
+                if not self._recv(ser, parser, ack, 0.5):
+                    self._send(ser, COM_MODE)       # the BT-01 also sends it twice
+                    if not self._recv(ser, parser, ack, 0.5):
+                        raise TimeoutError("no reply to COM MODE request")
 
-        results = []
-        for q in queries:
-            self.send(query(q))
-            for p in self.recv(0.6):
-                d = decode(p)
-                if d:
-                    results.append(d)
-        self.send(COM_END)
-        self.recv(0.3)
-        self.send(RELEASE)
-        return results
+                results = []
+                for q in queries:
+                    self._send(ser, query(q))
+                    p = self._recv(ser, parser, lambda p: p[:2] == bytes([0x04, q]), 0.6)
+                    d = decode(p) if p else None
+                    if d:
+                        results.append(d)
+                self._send(ser, COM_END)
+                self._recv(ser, parser, lambda p: p[:2] == b"\x03\x64", 0.3)
+                self._send(ser, RELEASE)
+                return results
+            finally:
+                ser.timeout = saved_timeout
 
 
 # ---------------------------------------------------------------- log replay
