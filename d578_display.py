@@ -17,9 +17,10 @@ import queue
 import threading
 import time
 import tkinter as tk
+import traceback
 
 from d578_status import (FrameParser, Q_CHAN_A, Q_CHAN_B, Q_GPS, Q_ZONE_A,
-                         Q_ZONE_B, Radio, SharedSerial, frame)
+                         Q_ZONE_B, Radio, SharedSerial, frame, mhz)
 
 # LCD palette
 BG = "#0b1622"
@@ -51,9 +52,11 @@ class Poller(threading.Thread):
     (used while the software mic is keyed).
     """
 
-    def __init__(self, get_link, interval=2.0, gps=False, paused=lambda: False):
+    def __init__(self, get_link, interval=2.0, gps=False, paused=lambda: False,
+                 debug=False):
         super().__init__(daemon=True)
         self.get_link = get_link
+        self.debug = debug          # print every frame to the console
         self.interval = interval
         self.paused = paused
         self.queries = [Q_ZONE_A, Q_ZONE_B, Q_CHAN_A, Q_CHAN_B] + ([Q_GPS] if gps else [])
@@ -78,11 +81,12 @@ class Poller(threading.Thread):
         if link is None or not link.is_open:
             return ("error", "PORT CLOSED")
         try:
-            results = Radio(link=link).read_status(self.queries)
+            results = Radio(link=link, raw=self.debug).read_status(self.queries)
         except TimeoutError:
             return ("error", "NO RESPONSE")
         except Exception as e:                 # port yanked, closed mid-poll...
-            return ("error", type(e).__name__.upper())
+            traceback.print_exc()
+            return ("error", f"{type(e).__name__}: {e}"[:80])
         status = {}
         for d in results:
             key = d["type"] if d["type"] == "gps" else f"{d['type']}_{d['vfo']}"
@@ -119,7 +123,7 @@ class VfoRow(tk.Frame):
             is_vfo = name.startswith("Channel VFO")
             self.mode.config(text="VFO" if is_vfo else "MEM")
             self.name.config(text="Frequency mode" if is_vfo else (name or "--"))
-            self.freq.config(text=f"{chan['rx_mhz']:.5f}")
+            self.freq.config(text=mhz(chan["rx_mhz"]))
         self.set_stale(False)
 
     def set_stale(self, stale: bool):
@@ -142,7 +146,8 @@ class LcdPanel(tk.Frame):
         self.gps = tk.Label(self, text="", font=SMALL, bg=BG, fg=DIM, anchor="w",
                             justify="left", wraplength=320)
         self.gps.pack(fill="x", pady=(8, 0))
-        self.status = tk.Label(self, text="connecting...", font=SMALL, bg=BG, fg=DIM, anchor="w")
+        self.status = tk.Label(self, text="connecting...", font=SMALL, bg=BG, fg=DIM, anchor="w",
+                               justify="left", wraplength=320)
         self.status.pack(fill="x")
 
     def show_status(self, status: dict):
@@ -171,7 +176,7 @@ class DisplayWindow(tk.Toplevel):
     """
 
     def __init__(self, master, get_link, interval=2.0, gps=False,
-                 ptt=lambda: False, title="AT-D578UV"):
+                 ptt=lambda: False, title="AT-D578UV", debug=False):
         super().__init__(master, bg=BG)
         self.title("BT-01 Display - AT-D578UV")
         self.resizable(False, False)
@@ -184,7 +189,7 @@ class DisplayWindow(tk.Toplevel):
         self.panel = LcdPanel(self, title)
         self.panel.pack(fill="both", expand=True)
         self.ptt = ptt
-        self.poller = Poller(get_link, interval, gps, paused=ptt)
+        self.poller = Poller(get_link, interval, gps, paused=ptt, debug=debug)
         self.poller.start()
         self.protocol("WM_DELETE_WINDOW", self.hide)
         self._pump()
@@ -288,6 +293,7 @@ def main():
     ap.add_argument("--interval", type=float, default=2.0, help="poll interval, seconds")
     ap.add_argument("--gps", action="store_true", help="also show GPS position")
     ap.add_argument("--demo", action="store_true", help="no radio: replay captured replies")
+    ap.add_argument("--debug", action="store_true", help="print every frame to the console")
     a = ap.parse_args()
     if not (a.port or a.demo):
         ap.error("--port or --demo is required")
@@ -301,7 +307,7 @@ def main():
     root = tk.Tk()
     root.withdraw()
     win = DisplayWindow(root, get_link=lambda: link, interval=a.interval, gps=a.gps,
-                        title="DEMO" if a.demo else a.port)
+                        title="DEMO" if a.demo else a.port, debug=a.debug)
     win.protocol("WM_DELETE_WINDOW", root.destroy)
     root.mainloop()
     link.close()

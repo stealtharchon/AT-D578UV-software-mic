@@ -1631,7 +1631,8 @@ button_connect_button.place(x=20,y=455)
 display_interval = config.getfloat('Display', 'pollinterval', fallback=2.0)
 display_gps = config.getboolean('Display', 'gps', fallback=False)
 lcd_window = d578_display.DisplayWindow(window, get_link=lambda: ser, interval=display_interval,
-                                        gps=display_gps, ptt=ptt_active.is_set, title=callsign)
+                                        gps=display_gps, ptt=ptt_active.is_set, title=callsign,
+                                        debug=config.getboolean('Display', 'debug', fallback=False))
 lcd_window.withdraw()
 if config.getboolean('Display', 'autoopen', fallback=True):
     window.after(500, lcd_window.show, window)

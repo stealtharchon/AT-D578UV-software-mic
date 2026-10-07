@@ -76,9 +76,15 @@ def checksum_ok(p: bytes) -> bool:
 
 # ---------------------------------------------------------------- decoding
 
-def bcd_freq(b: bytes) -> float:
-    """4 bytes BCD, units of 10 Hz -> MHz.  14 66 40 00 -> 146.64000"""
-    return int(b.hex()) / 100000.0
+def bcd_freq(b: bytes) -> float | None:
+    """4 bytes BCD, units of 10 Hz -> MHz.  14 66 40 00 -> 146.64000
+    Returns None if the bytes aren't valid BCD (e.g. ff ff ff ff)."""
+    h = b.hex()
+    return int(h) / 100000.0 if h.isdigit() else None
+
+
+def mhz(f: float | None) -> str:
+    return f"{f:.5f}" if f is not None else "---.-----"
 
 
 def cstr(b: bytes) -> str:
@@ -111,7 +117,7 @@ def fmt(d: dict) -> str:
         return f"VFO {d['vfo']}  zone    : {d['name']}"
     if d["type"] == "channel":
         return (f"VFO {d['vfo']}  channel : {d['name']:<16}  "
-                f"{d['rx_mhz']:.5f} MHz   (field2 {d['field2_mhz']:.5f})")
+                f"{mhz(d['rx_mhz'])} MHz   (field2 {mhz(d['field2_mhz'])})")
     if d["type"] == "gps":
         return f"GPS    : {d['text']}"
     return str(d)
